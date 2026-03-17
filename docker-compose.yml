@@ -1,0 +1,112 @@
+services:
+  # User Management Service Application
+  usermanagement-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greengrub-usermanagement-service
+    ports:
+      - "8082:8082"
+      - "9091:9091"
+    environment:
+      # JWT Configuration
+      - JWT_SECRET=${JWT_SECRET:-YourVerySecureSecretKeyThatIsAtLeast256BitsLongForHS256Algorithm}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-86400000}
+      # Database Configuration (PostgreSQL)
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/greengrub_usermanagement
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      # Server Configuration
+      - SERVER_PORT=8082
+      - GRPC_SERVER_PORT=9091
+      # Profile
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-local}
+      # Optional: Kafka (disabled by default)
+      - SPRING_KAFKA_ENABLED=false
+      # Optional: Eureka (disabled by default)
+      - EUREKA_CLIENT_ENABLED=false
+      # Sample Data Initialization
+      - APP_DATA_INIT_ENABLED=${APP_DATA_INIT_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - greengrub-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: greengrub-usermanagement-db
+    environment:
+      POSTGRES_DB: greengrub_usermanagement
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - greengrub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Kafka with Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: greengrub-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - greengrub-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: greengrub-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - greengrub-network
+
+  # Eureka Server (Service Discovery)
+  eureka-server:
+    image: springcloud/eureka:latest
+    container_name: greengrub-eureka
+    ports:
+      - "8761:8761"
+    environment:
+      EUREKA_CLIENT_REGISTER_WITH_EUREKA: false
+      EUREKA_CLIENT_FETCH_REGISTRY: false
+    networks:
+      - greengrub-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  greengrub-network:
+    driver: bridge
