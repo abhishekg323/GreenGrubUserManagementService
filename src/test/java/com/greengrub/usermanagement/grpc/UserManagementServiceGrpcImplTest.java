@@ -1,5 +1,15 @@
 package com.greengrub.usermanagement.grpc;
 
+import com.greengrub.proto.users.UserByIdRequest;
+import com.greengrub.proto.users.GetUserByEmailRequest;
+import com.greengrub.proto.users.CreateUserRequest;
+import com.greengrub.proto.users.UpdateUserRequest;
+import com.greengrub.proto.users.DeleteUserResponse;
+import com.greengrub.proto.users.VerifyCredentialsRequest;
+import com.greengrub.proto.users.VerifyCredentialsResponse;
+import com.greengrub.proto.users.ListUsersRequest;
+import com.greengrub.proto.users.ListUsersResponse;
+import com.greengrub.proto.users.UserResponse;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.service.UserService;
@@ -94,7 +104,7 @@ class UserManagementServiceGrpcImplTest {
     @Test
     void getUser_Success() {
         // Arrange
-        GetUserRequest request = GetUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(USER_ID)
                 .build();
 
@@ -110,17 +120,17 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver, never()).onError(any());
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getUserId()).isEqualTo(USER_ID);
-        assertThat(response.getName()).isEqualTo("Test User");
-        assertThat(response.getEmail()).isEqualTo(USER_EMAIL);
-        assertThat(response.getIsActive()).isTrue();
-        assertThat(response.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.DONOR);
+        assertThat(response.getUser().getUserId()).isEqualTo(USER_ID);
+        assertThat(response.getUser().getName()).isEqualTo("Test User");
+        assertThat(response.getUser().getEmail()).isEqualTo(USER_EMAIL);
+        assertThat(response.getUser().getIsActive()).isTrue();
+        assertThat(response.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.DONOR);
     }
 
     @Test
     void getUser_NotFound() {
         // Arrange
-        GetUserRequest request = GetUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId("non-existent-id")
                 .build();
 
@@ -160,8 +170,8 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver).onCompleted();
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getEmail()).isEqualTo(USER_EMAIL);
-        assertThat(response.getName()).isEqualTo("Test User");
+        assertThat(response.getUser().getEmail()).isEqualTo(USER_EMAIL);
+        assertThat(response.getUser().getName()).isEqualTo("Test User");
     }
 
     @Test
@@ -194,7 +204,7 @@ class UserManagementServiceGrpcImplTest {
                 .setPassword("plainPassword123")
                 .setPhoneNumber("9876543210")
                 .setAddress("456 New St")
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.RECIPIENT)
+                .setRole(com.greengrub.proto.users.UserRole.RECIPIENT)
                 .build();
 
         when(passwordEncoder.encode("plainPassword123")).thenReturn("hashedPassword");
@@ -217,9 +227,9 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver).onCompleted();
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getName()).isEqualTo("New User");
-        assertThat(response.getEmail()).isEqualTo("new@example.com");
-        assertThat(response.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.RECIPIENT);
+        assertThat(response.getUser().getName()).isEqualTo("New User");
+        assertThat(response.getUser().getEmail()).isEqualTo("new@example.com");
+        assertThat(response.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.RECIPIENT);
     }
 
     @Test
@@ -290,8 +300,8 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver).onCompleted();
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getName()).isEqualTo("Updated Name");
-        assertThat(response.getPhoneNumber()).isEqualTo("9999999999");
+        assertThat(response.getUser().getName()).isEqualTo("Updated Name");
+        assertThat(response.getUser().getPhoneNumber()).isEqualTo("9999999999");
     }
 
     @Test
@@ -319,7 +329,7 @@ class UserManagementServiceGrpcImplTest {
     @Test
     void deleteUser_Success() {
         // Arrange
-        DeleteUserRequest request = DeleteUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(USER_ID)
                 .build();
 
@@ -341,7 +351,7 @@ class UserManagementServiceGrpcImplTest {
     @Test
     void deleteUser_NotFound() {
         // Arrange
-        DeleteUserRequest request = DeleteUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId("non-existent")
                 .build();
 
@@ -362,7 +372,7 @@ class UserManagementServiceGrpcImplTest {
     @Test
     void activateUser_Success() {
         // Arrange
-        ActivateUserRequest request = ActivateUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(USER_ID)
                 .build();
 
@@ -380,7 +390,7 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver).onCompleted();
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getIsActive()).isTrue();
+        assertThat(response.getUser().getIsActive()).isTrue();
     }
 
     // ==================== DeactivateUser Tests ====================
@@ -388,7 +398,7 @@ class UserManagementServiceGrpcImplTest {
     @Test
     void deactivateUser_Success() {
         // Arrange
-        DeactivateUserRequest request = DeactivateUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(USER_ID)
                 .build();
 
@@ -405,7 +415,7 @@ class UserManagementServiceGrpcImplTest {
         verify(userResponseObserver).onCompleted();
 
         UserResponse response = userResponseCaptor.getValue();
-        assertThat(response.getIsActive()).isFalse();
+        assertThat(response.getUser().getIsActive()).isFalse();
     }
 
     // ==================== VerifyCredentials Tests ====================
@@ -528,7 +538,7 @@ class UserManagementServiceGrpcImplTest {
     void listUsers_WithRoleFilter() {
         // Arrange
         ListUsersRequest request = ListUsersRequest.newBuilder()
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.DONOR)
+                .setRole(com.greengrub.proto.users.UserRole.DONOR)
                 .setPage(0)
                 .setPageSize(10)
                 .build();
@@ -546,7 +556,7 @@ class UserManagementServiceGrpcImplTest {
         ListUsersResponse response = listUsersResponseCaptor.getValue();
         assertThat(response.getTotalCount()).isEqualTo(1);
         assertThat(response.getUsersList()).hasSize(1);
-        assertThat(response.getUsers(0).getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.DONOR);
+        assertThat(response.getUsers(0).getRole()).isEqualTo(com.greengrub.proto.users.UserRole.DONOR);
     }
 
     @Test
@@ -570,14 +580,14 @@ class UserManagementServiceGrpcImplTest {
 
         ListUsersResponse response = listUsersResponseCaptor.getValue();
         assertThat(response.getTotalCount()).isEqualTo(1);
-        assertThat(response.getUsersList()).allMatch(UserResponse::getIsActive);
+        assertThat(response.getUsersList()).allMatch(user -> user.getIsActive());
     }
 
     @Test
     void listUsers_WithRoleAndActiveFilters() {
         // Arrange
         ListUsersRequest request = ListUsersRequest.newBuilder()
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.DONOR)
+                .setRole(com.greengrub.proto.users.UserRole.DONOR)
                 .setIsActive(true)
                 .setPage(0)
                 .setPageSize(10)

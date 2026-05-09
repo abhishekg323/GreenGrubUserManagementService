@@ -1,5 +1,16 @@
 package com.greengrub.usermanagement.grpc;
 
+import com.greengrub.proto.users.UserManagementServiceGrpc;
+import com.greengrub.proto.users.UserByIdRequest;
+import com.greengrub.proto.users.GetUserByEmailRequest;
+import com.greengrub.proto.users.CreateUserRequest;
+import com.greengrub.proto.users.UpdateUserRequest;
+import com.greengrub.proto.users.DeleteUserResponse;
+import com.greengrub.proto.users.VerifyCredentialsRequest;
+import com.greengrub.proto.users.VerifyCredentialsResponse;
+import com.greengrub.proto.users.ListUsersRequest;
+import com.greengrub.proto.users.ListUsersResponse;
+import com.greengrub.proto.users.UserResponse;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.repository.UserRepository;
@@ -97,7 +108,7 @@ class UserManagementServiceGrpcIntegrationTest {
     @Test
     void getUser_Success() {
         // Arrange
-        GetUserRequest request = GetUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(testUser.getId())
                 .build();
 
@@ -106,20 +117,20 @@ class UserManagementServiceGrpcIntegrationTest {
 
         // Assert
         assertThat(response).isNotNull();
-        assertThat(response.getUserId()).isEqualTo(testUser.getId());
-        assertThat(response.getName()).isEqualTo("gRPC Test User");
-        assertThat(response.getEmail()).isEqualTo(TEST_EMAIL);
-        assertThat(response.getPhoneNumber()).isEqualTo("1234567890");
-        assertThat(response.getIsActive()).isTrue();
-        assertThat(response.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.DONOR);
-        assertThat(response.getCreatedAt()).isNotEmpty();
-        assertThat(response.getUpdatedAt()).isNotEmpty();
+        assertThat(response.getUser().getUserId()).isEqualTo(testUser.getId());
+        assertThat(response.getUser().getName()).isEqualTo("gRPC Test User");
+        assertThat(response.getUser().getEmail()).isEqualTo(TEST_EMAIL);
+        assertThat(response.getUser().getPhoneNumber()).isEqualTo("1234567890");
+        assertThat(response.getUser().getIsActive()).isTrue();
+        assertThat(response.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.DONOR);
+        assertThat(response.getUser().getCreatedAt()).isNotEmpty();
+        assertThat(response.getUser().getUpdatedAt()).isNotEmpty();
     }
 
     @Test
     void getUser_NotFound() {
         // Arrange
-        GetUserRequest request = GetUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId("non-existent-id")
                 .build();
 
@@ -143,8 +154,8 @@ class UserManagementServiceGrpcIntegrationTest {
 
         // Assert
         assertThat(response).isNotNull();
-        assertThat(response.getEmail()).isEqualTo(TEST_EMAIL);
-        assertThat(response.getName()).isEqualTo("gRPC Test User");
+        assertThat(response.getUser().getEmail()).isEqualTo(TEST_EMAIL);
+        assertThat(response.getUser().getName()).isEqualTo("gRPC Test User");
     }
 
     @Test
@@ -171,7 +182,7 @@ class UserManagementServiceGrpcIntegrationTest {
                 .setPassword("NewPassword123")
                 .setPhoneNumber("9876543210")
                 .setAddress("456 New St")
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.RECIPIENT)
+                .setRole(com.greengrub.proto.users.UserRole.RECIPIENT)
                 .build();
 
         // Act
@@ -179,12 +190,12 @@ class UserManagementServiceGrpcIntegrationTest {
 
         // Assert
         assertThat(response).isNotNull();
-        assertThat(response.getUserId()).isNotEmpty();
-        assertThat(response.getName()).isEqualTo("New gRPC User");
-        assertThat(response.getEmail()).isEqualTo("newgrpc@example.com");
-        assertThat(response.getPhoneNumber()).isEqualTo("9876543210");
-        assertThat(response.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.RECIPIENT);
-        assertThat(response.getIsActive()).isTrue();
+        assertThat(response.getUser().getUserId()).isNotEmpty();
+        assertThat(response.getUser().getName()).isEqualTo("New gRPC User");
+        assertThat(response.getUser().getEmail()).isEqualTo("newgrpc@example.com");
+        assertThat(response.getUser().getPhoneNumber()).isEqualTo("9876543210");
+        assertThat(response.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.RECIPIENT);
+        assertThat(response.getUser().getIsActive()).isTrue();
 
         // Verify in database
         User savedUser = userRepository.findByEmail("newgrpc@example.com").orElseThrow();
@@ -241,9 +252,9 @@ class UserManagementServiceGrpcIntegrationTest {
 
         // Assert
         assertThat(response).isNotNull();
-        assertThat(response.getName()).isEqualTo("Updated gRPC Name");
-        assertThat(response.getPhoneNumber()).isEqualTo("9999999999");
-        assertThat(response.getEmail()).isEqualTo(TEST_EMAIL); // Unchanged
+        assertThat(response.getUser().getName()).isEqualTo("Updated gRPC Name");
+        assertThat(response.getUser().getPhoneNumber()).isEqualTo("9999999999");
+        assertThat(response.getUser().getEmail()).isEqualTo(TEST_EMAIL); // Unchanged
 
         // Verify in database
         User updatedUser = userRepository.findById(testUser.getId()).orElseThrow();
@@ -256,14 +267,14 @@ class UserManagementServiceGrpcIntegrationTest {
         // Arrange
         UpdateUserRequest request = UpdateUserRequest.newBuilder()
                 .setUserId(testUser.getId())
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.ADMIN)
+                .setRole(com.greengrub.proto.users.UserRole.ADMIN)
                 .build();
 
         // Act
         UserResponse response = blockingStub.updateUser(request);
 
         // Assert
-        assertThat(response.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.ADMIN);
+        assertThat(response.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.ADMIN);
 
         // Verify in database
         User updatedUser = userRepository.findById(testUser.getId()).orElseThrow();
@@ -289,7 +300,7 @@ class UserManagementServiceGrpcIntegrationTest {
     @Test
     void deleteUser_Success() {
         // Arrange
-        DeleteUserRequest request = DeleteUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(testUser.getId())
                 .build();
 
@@ -308,7 +319,7 @@ class UserManagementServiceGrpcIntegrationTest {
     @Test
     void deleteUser_NotFound() {
         // Arrange
-        DeleteUserRequest request = DeleteUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId("non-existent-id")
                 .build();
 
@@ -326,7 +337,7 @@ class UserManagementServiceGrpcIntegrationTest {
         testUser.deactivate();
         userRepository.save(testUser);
 
-        ActivateUserRequest request = ActivateUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(testUser.getId())
                 .build();
 
@@ -334,7 +345,7 @@ class UserManagementServiceGrpcIntegrationTest {
         UserResponse response = blockingStub.activateUser(request);
 
         // Assert
-        assertThat(response.getIsActive()).isTrue();
+        assertThat(response.getUser().getIsActive()).isTrue();
 
         // Verify in database
         User activatedUser = userRepository.findById(testUser.getId()).orElseThrow();
@@ -346,7 +357,7 @@ class UserManagementServiceGrpcIntegrationTest {
     @Test
     void deactivateUser_Success() {
         // Arrange
-        DeactivateUserRequest request = DeactivateUserRequest.newBuilder()
+        UserByIdRequest request = UserByIdRequest.newBuilder()
                 .setUserId(testUser.getId())
                 .build();
 
@@ -354,7 +365,7 @@ class UserManagementServiceGrpcIntegrationTest {
         UserResponse response = blockingStub.deactivateUser(request);
 
         // Assert
-        assertThat(response.getIsActive()).isFalse();
+        assertThat(response.getUser().getIsActive()).isFalse();
 
         // Verify in database
         User deactivatedUser = userRepository.findById(testUser.getId()).orElseThrow();
@@ -445,7 +456,7 @@ class UserManagementServiceGrpcIntegrationTest {
         createAndSaveUser("recipient1@example.com", UserRole.RECIPIENT, true);
 
         ListUsersRequest request = ListUsersRequest.newBuilder()
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.DONOR)
+                .setRole(com.greengrub.proto.users.UserRole.DONOR)
                 .setPage(0)
                 .setPageSize(10)
                 .build();
@@ -456,7 +467,7 @@ class UserManagementServiceGrpcIntegrationTest {
         // Assert
         assertThat(response.getTotalCount()).isEqualTo(3); // testUser + donor1 + donor2
         assertThat(response.getUsersList())
-                .allMatch(user -> user.getRole() == com.greengrub.usermanagement.grpc.UserRole.DONOR);
+                .allMatch(user -> user.getRole() == com.greengrub.proto.users.UserRole.DONOR);
     }
 
     @Test
@@ -476,7 +487,7 @@ class UserManagementServiceGrpcIntegrationTest {
 
         // Assert
         assertThat(response.getTotalCount()).isEqualTo(2); // testUser + active
-        assertThat(response.getUsersList()).allMatch(UserResponse::getIsActive);
+        assertThat(response.getUsersList()).allMatch(user -> user.getIsActive());
     }
 
     @Test
@@ -487,7 +498,7 @@ class UserManagementServiceGrpcIntegrationTest {
         createAndSaveUser("active-recipient@example.com", UserRole.RECIPIENT, true);
 
         ListUsersRequest request = ListUsersRequest.newBuilder()
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.DONOR)
+                .setRole(com.greengrub.proto.users.UserRole.DONOR)
                 .setIsActive(true)
                 .setPage(0)
                 .setPageSize(10)
@@ -499,7 +510,7 @@ class UserManagementServiceGrpcIntegrationTest {
         // Assert
         assertThat(response.getTotalCount()).isEqualTo(2); // testUser + active-donor
         assertThat(response.getUsersList())
-                .allMatch(user -> user.getRole() == com.greengrub.usermanagement.grpc.UserRole.DONOR && user.getIsActive());
+                .allMatch(user -> user.getRole() == com.greengrub.proto.users.UserRole.DONOR && user.getIsActive());
     }
 
     @Test
@@ -551,11 +562,11 @@ class UserManagementServiceGrpcIntegrationTest {
                 .setName("E2E Test User")
                 .setEmail("e2e@example.com")
                 .setPassword("E2EPassword123")
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.DONOR)
+                .setRole(com.greengrub.proto.users.UserRole.DONOR)
                 .build();
 
         UserResponse createdUser = blockingStub.createUser(createRequest);
-        String userId = createdUser.getUserId();
+        String userId = createdUser.getUser().getUserId();
         assertThat(userId).isNotEmpty();
 
         // 2. Verify credentials
@@ -571,31 +582,31 @@ class UserManagementServiceGrpcIntegrationTest {
         UpdateUserRequest updateRequest = UpdateUserRequest.newBuilder()
                 .setUserId(userId)
                 .setName("E2E Updated Name")
-                .setRole(com.greengrub.usermanagement.grpc.UserRole.ADMIN)
+                .setRole(com.greengrub.proto.users.UserRole.ADMIN)
                 .build();
 
         UserResponse updatedUser = blockingStub.updateUser(updateRequest);
-        assertThat(updatedUser.getName()).isEqualTo("E2E Updated Name");
-        assertThat(updatedUser.getRole()).isEqualTo(com.greengrub.usermanagement.grpc.UserRole.ADMIN);
+        assertThat(updatedUser.getUser().getName()).isEqualTo("E2E Updated Name");
+        assertThat(updatedUser.getUser().getRole()).isEqualTo(com.greengrub.proto.users.UserRole.ADMIN);
 
         // 4. Deactivate user
-        DeactivateUserRequest deactivateRequest = DeactivateUserRequest.newBuilder()
+        UserByIdRequest deactivateRequest = UserByIdRequest.newBuilder()
                 .setUserId(userId)
                 .build();
 
         UserResponse deactivatedUser = blockingStub.deactivateUser(deactivateRequest);
-        assertThat(deactivatedUser.getIsActive()).isFalse();
+        assertThat(deactivatedUser.getUser().getIsActive()).isFalse();
 
         // 5. Activate user
-        ActivateUserRequest activateRequest = ActivateUserRequest.newBuilder()
+        UserByIdRequest activateRequest = UserByIdRequest.newBuilder()
                 .setUserId(userId)
                 .build();
 
         UserResponse activatedUser = blockingStub.activateUser(activateRequest);
-        assertThat(activatedUser.getIsActive()).isTrue();
+        assertThat(activatedUser.getUser().getIsActive()).isTrue();
 
         // 6. Delete user
-        DeleteUserRequest deleteRequest = DeleteUserRequest.newBuilder()
+        UserByIdRequest deleteRequest = UserByIdRequest.newBuilder()
                 .setUserId(userId)
                 .build();
 

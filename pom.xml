@@ -28,11 +28,17 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
-		<grpc.version>1.77.1</grpc.version>
-		<protobuf-java.version>4.33.4</protobuf-java.version>
 		<spring-cloud.version>2025.1.0</spring-cloud.version>
 		<spring-grpc.version>1.0.2</spring-grpc.version>
 	</properties>
+	<repositories>
+      <!-- GitHub Packages Repository -->
+     <repository>
+        <id>github</id>
+        <name>GitHub Packages</name>
+        <url>https://maven.pkg.github.com/greengrub-team/proto-contracts</url>
+     </repository>
+	</repositories>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -139,6 +145,11 @@
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+  <groupId>com.greengrub</groupId>
+  <artifactId>proto-contracts</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+</dependency>
 	</dependencies>
 	<dependencyManagement>
 		<dependencies>
@@ -172,30 +183,6 @@
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>io.github.ascopes</groupId>
-				<artifactId>protobuf-maven-plugin</artifactId>
-				<version>4.0.3</version>
-				<configuration>
-					<protoc>${protobuf-java.version}</protoc>
-					<binaryMavenPlugins>
-						<binaryMavenPlugin>
-							<groupId>io.grpc</groupId>
-							<artifactId>protoc-gen-grpc-java</artifactId>
-							<version>${grpc.version}</version>
-							<options>@generated=omit</options>
-						</binaryMavenPlugin>
-					</binaryMavenPlugins>
-				</configuration>
-				<executions>
-					<execution>
-						<id>generate</id>
-						<goals>
-							<goal>generate</goal>
-						</goals>
-					</execution>
-				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>

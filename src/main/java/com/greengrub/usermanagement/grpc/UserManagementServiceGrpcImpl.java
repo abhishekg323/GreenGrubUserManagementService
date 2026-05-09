@@ -1,8 +1,20 @@
 package com.greengrub.usermanagement.grpc;
 
+import com.greengrub.proto.users.UserManagementServiceGrpc.UserManagementServiceImplBase;
+import com.greengrub.proto.users.UserByIdRequest;
+import com.greengrub.proto.users.GetUserByEmailRequest;
+import com.greengrub.proto.users.CreateUserRequest;
+import com.greengrub.proto.users.UpdateUserRequest;
+import com.greengrub.proto.users.DeleteUserResponse;
+import com.greengrub.proto.users.VerifyCredentialsRequest;
+import com.greengrub.proto.users.VerifyCredentialsResponse;
+import com.greengrub.proto.users.ListUsersRequest;
+import com.greengrub.proto.users.ListUsersResponse;
+import com.greengrub.proto.users.UserResponse;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.service.UserService;
+
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +32,7 @@ import java.util.List;
 @GrpcService
 @RequiredArgsConstructor
 @Slf4j
-public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.UserManagementServiceImplBase {
+public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase {
 
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
@@ -31,7 +43,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
      * Get user by ID
      */
     @Override
-    public void getUser(GetUserRequest request, StreamObserver<UserResponse> responseObserver) {
+    public void getUser(UserByIdRequest request, StreamObserver<UserResponse> responseObserver) {
         try {
             log.info("gRPC GetUser called for userId: {}", request.getUserId());
 
@@ -167,7 +179,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
      * Delete user (soft delete)
      */
     @Override
-    public void deleteUser(DeleteUserRequest request, StreamObserver<DeleteUserResponse> responseObserver) {
+    public void deleteUser(UserByIdRequest request, StreamObserver<DeleteUserResponse> responseObserver) {
         try {
             log.info("gRPC DeleteUser called for userId: {}", request.getUserId());
 
@@ -196,7 +208,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
      * Activate user
      */
     @Override
-    public void activateUser(ActivateUserRequest request, StreamObserver<UserResponse> responseObserver) {
+    public void activateUser(UserByIdRequest request, StreamObserver<UserResponse> responseObserver) {
         try {
             log.info("gRPC ActivateUser called for userId: {}", request.getUserId());
 
@@ -224,7 +236,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
      * Deactivate user
      */
     @Override
-    public void deactivateUser(DeactivateUserRequest request, StreamObserver<UserResponse> responseObserver) {
+    public void deactivateUser(UserByIdRequest request, StreamObserver<UserResponse> responseObserver) {
         try {
             log.info("gRPC DeactivateUser called for userId: {}", request.getUserId());
 
@@ -264,7 +276,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
                 .setValid(isValid);
 
             if (isValid) {
-                responseBuilder.setUser(mapToUserResponse(user))
+                responseBuilder.setUser(mapToUserResponse(user).getUser())
                     .setMessage("Credentials are valid");
             } else {
                 responseBuilder.setMessage("Invalid password");
@@ -336,6 +348,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
 
             paginatedUsers.stream()
                 .map(this::mapToUserResponse)
+                .map(UserResponse::getUser)
                 .forEach(responseBuilder::addUsers);
 
             responseObserver.onNext(responseBuilder.build());
@@ -357,7 +370,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
      * Map User entity to gRPC UserResponse
      */
     private UserResponse mapToUserResponse(User user) {
-        return UserResponse.newBuilder()
+        com.greengrub.proto.users.User protoUser = com.greengrub.proto.users.User.newBuilder()
             .setUserId(user.getId())
             .setName(user.getName())
             .setEmail(user.getEmail())
@@ -368,12 +381,16 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
             .setCreatedAt(user.getCreatedAt().format(ISO_FORMATTER))
             .setUpdatedAt(user.getUpdatedAt().format(ISO_FORMATTER))
             .build();
+
+        return UserResponse.newBuilder()
+            .setUser(protoUser)
+            .build();
     }
 
     /**
      * Map proto UserRole to entity UserRole
      */
-    private UserRole mapToEntityRole(com.greengrub.usermanagement.grpc.UserRole protoRole) {
+    private UserRole mapToEntityRole(com.greengrub.proto.users.UserRole protoRole) {
         return switch (protoRole) {
             case DONOR -> UserRole.DONOR;
             case RECIPIENT -> UserRole.RECIPIENT;
@@ -385,11 +402,11 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceGrpc.Use
     /**
      * Map entity UserRole to proto UserRole
      */
-    private com.greengrub.usermanagement.grpc.UserRole mapToProtoRole(UserRole entityRole) {
+    private com.greengrub.proto.users.UserRole mapToProtoRole(UserRole entityRole) {
         return switch (entityRole) {
-            case DONOR -> com.greengrub.usermanagement.grpc.UserRole.DONOR;
-            case RECIPIENT -> com.greengrub.usermanagement.grpc.UserRole.RECIPIENT;
-            case ADMIN -> com.greengrub.usermanagement.grpc.UserRole.ADMIN;
+            case DONOR -> com.greengrub.proto.users.UserRole.DONOR;
+            case RECIPIENT -> com.greengrub.proto.users.UserRole.RECIPIENT;
+            case ADMIN -> com.greengrub.proto.users.UserRole.ADMIN;
         };
     }
 }
