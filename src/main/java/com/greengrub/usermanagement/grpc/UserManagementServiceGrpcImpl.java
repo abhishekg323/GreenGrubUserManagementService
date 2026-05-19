@@ -13,8 +13,13 @@ import com.greengrub.proto.users.ListUsersResponse;
 import com.greengrub.proto.users.UserResponse;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
+import com.greengrub.usermanagement.exception.InvalidPasswordException;
+import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
+import com.greengrub.usermanagement.exception.UserNotFoundException;
+import com.greengrub.usermanagement.exception.UserStorageException;
 import com.greengrub.usermanagement.service.UserService;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
@@ -56,11 +61,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC GetUser completed successfully for userId: {}", request.getUserId());
         } catch (Exception e) {
             log.error("gRPC GetUser failed for userId: {}", request.getUserId(), e);
-            responseObserver.onError(
-                Status.NOT_FOUND
-                    .withDescription("User not found: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to get user"));
         }
     }
 
@@ -81,11 +82,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC GetUserByEmail completed successfully");
         } catch (Exception e) {
             log.error("gRPC GetUserByEmail failed for email: {}", request.getEmail(), e);
-            responseObserver.onError(
-                Status.NOT_FOUND
-                    .withDescription("User not found: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to get user by email"));
         }
     }
 
@@ -123,11 +120,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC CreateUser completed successfully for userId: {}", savedUser.getId());
         } catch (Exception e) {
             log.error("gRPC CreateUser failed", e);
-            responseObserver.onError(
-                Status.INVALID_ARGUMENT
-                    .withDescription("Failed to create user: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to create user"));
         }
     }
 
@@ -167,11 +160,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC UpdateUser completed successfully for userId: {}", request.getUserId());
         } catch (Exception e) {
             log.error("gRPC UpdateUser failed for userId: {}", request.getUserId(), e);
-            responseObserver.onError(
-                Status.INVALID_ARGUMENT
-                    .withDescription("Failed to update user: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to update user"));
         }
     }
 
@@ -196,11 +185,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC DeleteUser completed successfully for userId: {}", request.getUserId());
         } catch (Exception e) {
             log.error("gRPC DeleteUser failed for userId: {}", request.getUserId(), e);
-            responseObserver.onError(
-                Status.INTERNAL
-                    .withDescription("Failed to delete user: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to delete user"));
         }
     }
 
@@ -224,11 +209,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC ActivateUser completed successfully for userId: {}", request.getUserId());
         } catch (Exception e) {
             log.error("gRPC ActivateUser failed for userId: {}", request.getUserId(), e);
-            responseObserver.onError(
-                Status.NOT_FOUND
-                    .withDescription("Failed to activate user: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to activate user"));
         }
     }
 
@@ -252,11 +233,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             log.info("gRPC DeactivateUser completed successfully for userId: {}", request.getUserId());
         } catch (Exception e) {
             log.error("gRPC DeactivateUser failed for userId: {}", request.getUserId(), e);
-            responseObserver.onError(
-                Status.NOT_FOUND
-                    .withDescription("Failed to deactivate user: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to deactivate user"));
         }
     }
 
@@ -358,11 +335,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
                 totalCount, paginatedUsers.size());
         } catch (Exception e) {
             log.error("gRPC ListUsers failed", e);
-            responseObserver.onError(
-                Status.INTERNAL
-                    .withDescription("Failed to list users: " + e.getMessage())
-                    .asRuntimeException()
-            );
+            responseObserver.onError(mapException(e, "Failed to list users"));
         }
     }
 
@@ -385,6 +358,32 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
         return UserResponse.newBuilder()
             .setUser(protoUser)
             .build();
+    }
+
+    /**
+     * Map service-layer exceptions to gRPC Status. Storage failures and circuit-breaker
+     * rejections become UNAVAILABLE so callers know to retry; business exceptions map
+     * to their semantic codes.
+     */
+    private io.grpc.StatusRuntimeException mapException(Exception e, String fallbackMessage) {
+        if (e instanceof UserNotFoundException) {
+            return Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException();
+        }
+        if (e instanceof UserAlreadyExistsException) {
+            return Status.ALREADY_EXISTS.withDescription(e.getMessage()).asRuntimeException();
+        }
+        if (e instanceof InvalidPasswordException) {
+            return Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException();
+        }
+        if (e instanceof IllegalArgumentException) {
+            return Status.INVALID_ARGUMENT.withDescription(e.getMessage()).asRuntimeException();
+        }
+        if (e instanceof UserStorageException || e instanceof CallNotPermittedException) {
+            return Status.UNAVAILABLE
+                    .withDescription("Service temporarily unavailable, please retry: " + e.getMessage())
+                    .asRuntimeException();
+        }
+        return Status.INTERNAL.withDescription(fallbackMessage + ": " + e.getMessage()).asRuntimeException();
     }
 
     /**
