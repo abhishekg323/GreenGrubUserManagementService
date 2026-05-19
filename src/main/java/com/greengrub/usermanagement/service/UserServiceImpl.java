@@ -8,8 +8,11 @@ import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.exception.InvalidPasswordException;
 import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
 import com.greengrub.usermanagement.exception.UserNotFoundException;
+import com.greengrub.usermanagement.exception.UserStorageException;
 import com.greengrub.usermanagement.mapper.UserMapper;
 import com.greengrub.usermanagement.repository.UserRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,15 +22,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Implementation of UserService
- * Handles all business logic for user management including password hashing
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 @Transactional(readOnly = true)
 public class UserServiceImpl implements UserService {
+
+    private static final String RETRY_NAME = "userRetry";
+    private static final String CB_NAME = "userBreaker";
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
@@ -38,22 +40,16 @@ public class UserServiceImpl implements UserService {
     public UserResponse createUser(UserCreateRequest request) {
         log.info("Creating new user with email: {}", request.getEmail());
 
-        // Check if user already exists
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (existsByEmailInternal(request.getEmail())) {
             log.warn("User already exists with email: {}", request.getEmail());
             throw new UserAlreadyExistsException(request.getEmail());
         }
 
-        // Map DTO to entity
         User user = userMapper.toEntity(request);
-
-        // Hash password using BCrypt
         String hashedPassword = passwordEncoder.encode(user.getPassword());
         user.setPassword(hashedPassword);
-        log.debug("Password hashed successfully for user: {}", request.getEmail());
 
-        // Save user
-        User savedUser = userRepository.save(user);
+        User savedUser = saveUser(user);
         log.info("User created successfully with id: {}", savedUser.getId());
 
         return userMapper.toResponse(savedUser);
@@ -62,28 +58,19 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponse getUserById(String userId) {
         log.info("Fetching user by id: {}", userId);
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
-        return userMapper.toResponse(user);
+        return userMapper.toResponse(findUserByIdOrThrow(userId));
     }
 
     @Override
     public UserResponse getUserByEmail(String email) {
         log.info("Fetching user by email: {}", email);
-
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new UserNotFoundException("email", email));
-
-        return userMapper.toResponse(user);
+        return userMapper.toResponse(findUserByEmailOrThrow(email));
     }
 
     @Override
     public List<UserResponse> getAllUsers() {
         log.info("Fetching all users");
-
-        return userRepository.findAll().stream()
+        return findAllUsers().stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -91,8 +78,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<UserResponse> getActiveUsers() {
         log.info("Fetching all active users");
-
-        return userRepository.findByIsActiveTrue().stream()
+        return findActiveUsers().stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -100,8 +86,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<UserResponse> getUsersByRole(UserRole role) {
         log.info("Fetching users by role: {}", role);
-
-        return userRepository.findByRole(role).stream()
+        return findUsersByRole(role).stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -111,21 +96,17 @@ public class UserServiceImpl implements UserService {
     public UserResponse updateUser(String userId, UserUpdateRequest request) {
         log.info("Updating user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+        User user = findUserByIdOrThrow(userId);
 
-        // Check if email is being changed and if it's already taken
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
-            if (userRepository.existsByEmail(request.getEmail())) {
+            if (existsByEmailInternal(request.getEmail())) {
                 log.warn("Email already exists: {}", request.getEmail());
                 throw new UserAlreadyExistsException(request.getEmail());
             }
         }
 
-        // Update user fields
         userMapper.updateEntity(user, request);
-
-        User updatedUser = userRepository.save(user);
+        User updatedUser = saveUser(user);
         log.info("User updated successfully with id: {}", updatedUser.getId());
 
         return userMapper.toResponse(updatedUser);
@@ -136,24 +117,19 @@ public class UserServiceImpl implements UserService {
     public void updatePassword(String userId, String oldPassword, String newPassword) {
         log.info("Updating password for user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+        User user = findUserByIdOrThrow(userId);
 
-        // Verify old password
         if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
             log.warn("Invalid old password provided for user: {}", userId);
             throw new InvalidPasswordException("Old password is incorrect");
         }
 
-        // Validate new password (basic validation, add more as needed)
         if (newPassword == null || newPassword.length() < 8) {
             throw new InvalidPasswordException("New password must be at least 8 characters long");
         }
 
-        // Hash and save new password
-        String hashedPassword = passwordEncoder.encode(newPassword);
-        user.setPassword(hashedPassword);
-        userRepository.save(user);
+        user.setPassword(passwordEncoder.encode(newPassword));
+        saveUser(user);
 
         log.info("Password updated successfully for user: {}", userId);
     }
@@ -163,18 +139,14 @@ public class UserServiceImpl implements UserService {
     public void resetPassword(String userId, String newPassword) {
         log.info("Resetting password for user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+        User user = findUserByIdOrThrow(userId);
 
-        // Validate new password
         if (newPassword == null || newPassword.length() < 8) {
             throw new InvalidPasswordException("New password must be at least 8 characters long");
         }
 
-        // Hash and save new password
-        String hashedPassword = passwordEncoder.encode(newPassword);
-        user.setPassword(hashedPassword);
-        userRepository.save(user);
+        user.setPassword(passwordEncoder.encode(newPassword));
+        saveUser(user);
 
         log.info("Password reset successfully for user: {}", userId);
     }
@@ -182,14 +154,8 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean verifyPassword(String userId, String password) {
         log.debug("Verifying password for user with id: {}", userId);
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
-        boolean matches = passwordEncoder.matches(password, user.getPassword());
-        log.debug("Password verification result for user {}: {}", userId, matches);
-
-        return matches;
+        User user = findUserByIdOrThrow(userId);
+        return passwordEncoder.matches(password, user.getPassword());
     }
 
     @Override
@@ -197,11 +163,9 @@ public class UserServiceImpl implements UserService {
     public void deleteUser(String userId) {
         log.info("Soft deleting user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
+        User user = findUserByIdOrThrow(userId);
         user.deactivate();
-        userRepository.save(user);
+        saveUser(user);
 
         log.info("User soft deleted successfully with id: {}", userId);
     }
@@ -211,11 +175,11 @@ public class UserServiceImpl implements UserService {
     public void permanentlyDeleteUser(String userId) {
         log.info("Permanently deleting user with id: {}", userId);
 
-        if (!userRepository.existsById(userId)) {
+        if (!existsByIdInternal(userId)) {
             throw new UserNotFoundException(userId);
         }
 
-        userRepository.deleteById(userId);
+        deleteUserById(userId);
         log.info("User permanently deleted with id: {}", userId);
     }
 
@@ -224,11 +188,9 @@ public class UserServiceImpl implements UserService {
     public UserResponse activateUser(String userId) {
         log.info("Activating user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
+        User user = findUserByIdOrThrow(userId);
         user.activate();
-        User activatedUser = userRepository.save(user);
+        User activatedUser = saveUser(user);
 
         log.info("User activated successfully with id: {}", userId);
         return userMapper.toResponse(activatedUser);
@@ -239,11 +201,9 @@ public class UserServiceImpl implements UserService {
     public UserResponse deactivateUser(String userId) {
         log.info("Deactivating user with id: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
+        User user = findUserByIdOrThrow(userId);
         user.deactivate();
-        User deactivatedUser = userRepository.save(user);
+        User deactivatedUser = saveUser(user);
 
         log.info("User deactivated successfully with id: {}", userId);
         return userMapper.toResponse(deactivatedUser);
@@ -251,14 +211,13 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public boolean existsByEmail(String email) {
-        return userRepository.existsByEmail(email);
+        return existsByEmailInternal(email);
     }
 
     @Override
     public List<UserResponse> searchUsersByName(String name) {
         log.info("Searching users by name: {}", name);
-
-        return userRepository.findByNameContainingIgnoreCase(name).stream()
+        return searchByName(name).stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -266,8 +225,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<UserResponse> getActiveDonors() {
         log.info("Fetching all active donors");
-
-        return userRepository.findAllActiveDonors(UserRole.DONOR).stream()
+        return findActiveDonors().stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -275,88 +233,267 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<UserResponse> getActiveRecipients() {
         log.info("Fetching all active recipients");
-
-        return userRepository.findAllActiveRecipients(UserRole.RECIPIENT).stream()
+        return findActiveRecipients().stream()
                 .map(userMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
     @Override
     public long countUsersByRole(UserRole role) {
-        return userRepository.countByRole(role);
+        return countByRoleInternal(role);
     }
 
     @Override
     public long countActiveUsers() {
-        return userRepository.countActiveUsers();
+        return countActiveInternal();
     }
 
     // ============= gRPC Helper Methods =============
 
     @Override
+    @Transactional
     public User createUser(User user) {
         log.info("Creating user via gRPC: {}", user.getEmail());
 
-        // Check if email already exists
-        if (userRepository.existsByEmail(user.getEmail())) {
-            throw new RuntimeException("User with email " + user.getEmail() + " already exists");
+        if (existsByEmailInternal(user.getEmail())) {
+            throw new UserAlreadyExistsException(user.getEmail());
         }
 
-        return userRepository.save(user);
+        return saveUser(user);
     }
 
     @Override
+    @Transactional
     public User updateUser(User user) {
         log.info("Updating user via gRPC: {}", user.getId());
 
-        if (!userRepository.existsById(user.getId())) {
-            throw new RuntimeException("User not found with ID: " + user.getId());
+        if (!existsByIdInternal(user.getId())) {
+            throw new UserNotFoundException(user.getId());
         }
 
-        return userRepository.save(user);
+        return saveUser(user);
     }
 
     @Override
     public User getUserEntityById(String userId) {
         log.debug("Fetching user entity by ID: {}", userId);
-
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+        return findUserByIdOrThrow(userId);
     }
 
     @Override
     public User getUserEntityByEmail(String email) {
         log.debug("Fetching user entity by email: {}", email);
-
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found with email: " + email));
+        return findUserByEmailOrThrow(email);
     }
 
     @Override
     public List<User> getUsersByRoleAndActive(UserRole role, boolean isActive) {
         log.debug("Fetching users by role: {} and active: {}", role, isActive);
-
-        return userRepository.findByRoleAndIsActive(role, isActive);
+        return findByRoleAndActive(role, isActive);
     }
 
     @Override
     public List<User> getUsersByActive(boolean isActive) {
         log.debug("Fetching users by active status: {}", isActive);
-
-        return userRepository.findByIsActive(isActive);
+        return findByActive(isActive);
     }
 
     @Override
     public List<User> getAllUserEntities() {
         log.debug("Fetching all user entities");
-
-        return userRepository.findAll();
+        return findAllUsers();
     }
 
     @Override
     public List<User> getUserEntitiesByRole(UserRole role) {
         log.debug("Fetching user entities by role: {}", role);
+        return findUsersByRole(role);
+    }
 
-        return userRepository.findByRole(role);
+    // ============= Resilience-wrapped repository helpers =============
+    // Annotations live on private methods; business exceptions (UserNotFoundException,
+    // UserAlreadyExistsException, InvalidPasswordException) propagate without retry.
+    // Generic exceptions are wrapped in UserStorageException, which the retry policy targets.
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected User saveUser(User user) {
+        try {
+            return userRepository.save(user);
+        } catch (Exception e) {
+            log.error("Transient failure saving user: {}", e.getMessage());
+            throw new UserStorageException("Failed to save user", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected User findUserByIdOrThrow(String userId) {
+        try {
+            return userRepository.findById(userId)
+                    .orElseThrow(() -> new UserNotFoundException(userId));
+        } catch (UserNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Transient failure finding user by id {}: {}", userId, e.getMessage());
+            throw new UserStorageException("Failed to fetch user by id", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected User findUserByEmailOrThrow(String email) {
+        try {
+            return userRepository.findByEmail(email)
+                    .orElseThrow(() -> new UserNotFoundException("email", email));
+        } catch (UserNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Transient failure finding user by email {}: {}", email, e.getMessage());
+            throw new UserStorageException("Failed to fetch user by email", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected boolean existsByEmailInternal(String email) {
+        try {
+            return userRepository.existsByEmail(email);
+        } catch (Exception e) {
+            log.error("Transient failure checking email existence {}: {}", email, e.getMessage());
+            throw new UserStorageException("Failed to check email existence", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected boolean existsByIdInternal(String userId) {
+        try {
+            return userRepository.existsById(userId);
+        } catch (Exception e) {
+            log.error("Transient failure checking id existence {}: {}", userId, e.getMessage());
+            throw new UserStorageException("Failed to check user existence", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected void deleteUserById(String userId) {
+        try {
+            userRepository.deleteById(userId);
+        } catch (Exception e) {
+            log.error("Transient failure deleting user {}: {}", userId, e.getMessage());
+            throw new UserStorageException("Failed to delete user", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findAllUsers() {
+        try {
+            return userRepository.findAll();
+        } catch (Exception e) {
+            log.error("Transient failure fetching all users: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch users", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findActiveUsers() {
+        try {
+            return userRepository.findByIsActiveTrue();
+        } catch (Exception e) {
+            log.error("Transient failure fetching active users: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch active users", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findUsersByRole(UserRole role) {
+        try {
+            return userRepository.findByRole(role);
+        } catch (Exception e) {
+            log.error("Transient failure fetching users by role {}: {}", role, e.getMessage());
+            throw new UserStorageException("Failed to fetch users by role", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> searchByName(String name) {
+        try {
+            return userRepository.findByNameContainingIgnoreCase(name);
+        } catch (Exception e) {
+            log.error("Transient failure searching by name {}: {}", name, e.getMessage());
+            throw new UserStorageException("Failed to search users by name", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findActiveDonors() {
+        try {
+            return userRepository.findAllActiveDonors(UserRole.DONOR);
+        } catch (Exception e) {
+            log.error("Transient failure fetching active donors: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch active donors", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findActiveRecipients() {
+        try {
+            return userRepository.findAllActiveRecipients(UserRole.RECIPIENT);
+        } catch (Exception e) {
+            log.error("Transient failure fetching active recipients: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch active recipients", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected long countByRoleInternal(UserRole role) {
+        try {
+            return userRepository.countByRole(role);
+        } catch (Exception e) {
+            log.error("Transient failure counting users by role {}: {}", role, e.getMessage());
+            throw new UserStorageException("Failed to count users by role", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected long countActiveInternal() {
+        try {
+            return userRepository.countActiveUsers();
+        } catch (Exception e) {
+            log.error("Transient failure counting active users: {}", e.getMessage());
+            throw new UserStorageException("Failed to count active users", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findByRoleAndActive(UserRole role, boolean isActive) {
+        try {
+            return userRepository.findByRoleAndIsActive(role, isActive);
+        } catch (Exception e) {
+            log.error("Transient failure fetching users by role/active: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch users by role and active flag", e);
+        }
+    }
+
+    @Retry(name = RETRY_NAME)
+    @CircuitBreaker(name = CB_NAME)
+    protected List<User> findByActive(boolean isActive) {
+        try {
+            return userRepository.findByIsActive(isActive);
+        } catch (Exception e) {
+            log.error("Transient failure fetching users by active flag: {}", e.getMessage());
+            throw new UserStorageException("Failed to fetch users by active flag", e);
+        }
     }
 }

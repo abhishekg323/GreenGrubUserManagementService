@@ -1,6 +1,7 @@
 package com.greengrub.usermanagement.exception;
 
 import com.greengrub.usermanagement.dto.ErrorResponse;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -162,6 +163,50 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    /**
+     * Handle persistent storage failures after retries are exhausted.
+     */
+    @ExceptionHandler(UserStorageException.class)
+    public ResponseEntity<ErrorResponse> handleUserStorageException(
+            UserStorageException ex,
+            HttpServletRequest request) {
+
+        log.error("User storage failure after retries: {}", ex.getMessage(), ex);
+
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Service Unavailable")
+                .message("Service temporarily unavailable, please try again.")
+                .details(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+    }
+
+    /**
+     * Handle calls rejected by an OPEN circuit breaker.
+     */
+    @ExceptionHandler(CallNotPermittedException.class)
+    public ResponseEntity<ErrorResponse> handleCallNotPermittedException(
+            CallNotPermittedException ex,
+            HttpServletRequest request) {
+
+        log.warn("Call not permitted - circuit breaker open: {}", ex.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Service Unavailable")
+                .message("Service overloaded, please try again later.")
+                .details(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
     }
 
     /**
