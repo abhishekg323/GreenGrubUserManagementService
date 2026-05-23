@@ -3,21 +3,18 @@ package com.greengrub.usermanagement.controller;
 import com.greengrub.usermanagement.dto.*;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.service.UserService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.ExampleObject;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * REST Controller for User management operations
@@ -27,9 +24,13 @@ import java.util.List;
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "User Management", description = "CRUD operations for managing users. Most endpoints require authentication (click Authorize button first!).")
-@SecurityRequirement(name = "Bearer Authentication")
+@Tag(name = "User Management", description = "CRUD operations for managing users. Authentication is enforced upstream by the API Gateway.")
 public class UserController {
+
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024; // 5 MB
+    private static final Set<String> ALLOWED_IMAGE_TYPES =
+            Set.of("image/jpeg", "image/png", "image/webp");
+    private static final int MAX_DONATIONS_PAGE_SIZE = 100;
 
     private final UserService userService;
 
@@ -257,6 +258,73 @@ public class UserController {
                         .data(exists)
                         .build()
         );
+    }
+
+    /**
+     * Upload a profile image for the user. Bytes are forwarded to image-service
+     * over gRPC; on success the returned image id is persisted on the user row
+     * and the response includes the resolved imageUrl.
+     *
+     * <p>Reject early — content-type and size are validated before we pay the
+     * gRPC round-trip on garbage input.
+     */
+    @PostMapping(value = "/{userId}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse> uploadProfileImage(@PathVariable String userId,
+                                                          @RequestParam("file") MultipartFile file) {
+        log.info("REST: Uploading profile image for user: {} ({} bytes, contentType={})",
+                userId, file.getSize(), file.getContentType());
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Uploaded file is empty");
+        }
+        if (file.getSize() > MAX_IMAGE_BYTES) {
+            throw new IllegalArgumentException("Image exceeds maximum allowed size of 5 MB");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType.toLowerCase())) {
+            throw new IllegalArgumentException(
+                    "Unsupported content type: " + contentType + " (allowed: image/jpeg, image/png, image/webp)");
+        }
+
+        UserResponse user = userService.uploadProfileImage(userId, file);
+        return ResponseEntity.ok(ApiResponse.success("Profile image uploaded", user));
+    }
+
+    /**
+     * Clear the user's profile image pointer. Image-service still owns the bytes;
+     * this endpoint only detaches them from the user.
+     */
+    @DeleteMapping("/{userId}/image")
+    public ResponseEntity<ApiResponse> deleteProfileImage(@PathVariable String userId) {
+        log.info("REST: Clearing profile image for user: {}", userId);
+        UserResponse user = userService.deleteProfileImage(userId);
+        return ResponseEntity.ok(ApiResponse.success("Profile image cleared", user));
+    }
+
+    /**
+     * List donations created by this user. The data lives in donation-service —
+     * we forward the call over gRPC and map the proto response to a JSON-friendly
+     * shape. Pagination defaults: page=0, pageSize=10. pageSize is capped at 100
+     * to prevent runaway list pulls.
+     */
+    @GetMapping("/{userId}/donations")
+    public ResponseEntity<DonationListView> getDonationsByUserId(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+
+        log.info("REST: Fetching donations for user: {} (page={}, pageSize={})", userId, page, pageSize);
+
+        if (page < 0) {
+            throw new IllegalArgumentException("page must be >= 0");
+        }
+        if (pageSize < 1 || pageSize > MAX_DONATIONS_PAGE_SIZE) {
+            throw new IllegalArgumentException(
+                    "pageSize must be between 1 and " + MAX_DONATIONS_PAGE_SIZE);
+        }
+
+        DonationListView donations = userService.getDonationsByUserId(userId, page, pageSize);
+        return ResponseEntity.ok(donations);
     }
 
     /**

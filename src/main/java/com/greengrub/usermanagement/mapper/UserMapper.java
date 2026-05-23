@@ -29,7 +29,9 @@ public class UserMapper {
     }
 
     /**
-     * Convert User entity to UserResponse DTO
+     * Convert User entity to UserResponse DTO. The imageUrl field is left null
+     * here — the service layer fills it in by calling image-service when the
+     * caller wants the resolved URL.
      */
     public UserResponse toResponse(User user) {
         return UserResponse.builder()
@@ -40,6 +42,7 @@ public class UserMapper {
                 .address(user.getAddress())
                 .isActive(user.getIsActive())
                 .role(user.getRole())
+                .imageId(user.getImageId())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();

@@ -1,10 +1,12 @@
 package com.greengrub.usermanagement.service;
 
+import com.greengrub.usermanagement.dto.DonationListView;
 import com.greengrub.usermanagement.dto.UserCreateRequest;
 import com.greengrub.usermanagement.dto.UserResponse;
 import com.greengrub.usermanagement.dto.UserUpdateRequest;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -118,6 +120,25 @@ public interface UserService {
      * Get active user count
      */
     long countActiveUsers();
+
+    /**
+     * Upload a profile image to image-service and persist the returned image id
+     * on the user. Returns the new {@link UserResponse} with both imageId and
+     * the resolved imageUrl populated.
+     */
+    UserResponse uploadProfileImage(String userId, MultipartFile file);
+
+    /**
+     * Clear the user's profile image pointer. (Note: this does not delete the
+     * image bytes from image-service; that's the image-service's lifecycle to own.)
+     */
+    UserResponse deleteProfileImage(String userId);
+
+    /**
+     * Fetch a paginated list of donations created by the given user. Pulled
+     * from donation-service over gRPC — user-service does not own donations.
+     */
+    DonationListView getDonationsByUserId(String userId, int page, int pageSize);
 
     // ============= Additional methods for gRPC =============
 

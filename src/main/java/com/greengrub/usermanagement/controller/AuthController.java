@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,7 @@ import java.util.Map;
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "Authentication", description = "User authentication and registration endpoints. Start here to get your JWT token!")
+@Tag(name = "Authentication", description = "Signup, login, and token introspection. Login/signup mint JWTs that the API Gateway will validate on subsequent calls.")
 public class AuthController {
 
     private final AuthService authService;
@@ -123,8 +122,7 @@ public class AuthController {
 
     @Operation(
         summary = "Validate JWT Token",
-        description = "Check if your JWT token is valid and not expired. Returns user information if valid.",
-        security = @SecurityRequirement(name = "Bearer Authentication")
+        description = "Decodes a JWT minted by /signup or /login and returns the user. Useful for the API Gateway and for debugging."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Token is valid"),
@@ -155,12 +153,11 @@ public class AuthController {
 
     @Operation(
         summary = "Get Current User Info",
-        description = "Retrieve information about the currently authenticated user from their JWT token.",
-        security = @SecurityRequirement(name = "Bearer Authentication")
+        description = "Returns the identity injected by the API Gateway via X-User-Id / X-User-Email / X-User-Role headers."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "User information retrieved"),
-        @ApiResponse(responseCode = "403", description = "Authentication required - Click Authorize button first!")
+        @ApiResponse(responseCode = "403", description = "No identity headers present (request did not come through the gateway)")
     })
     @GetMapping("/me")
     public ResponseEntity<com.greengrub.usermanagement.dto.ApiResponse> getCurrentUser(
