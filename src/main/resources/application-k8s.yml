@@ -36,7 +36,7 @@ spring:
           address: static://${IMAGE_SERVICE_HOST:image-service}:${IMAGE_GRPC_SERVICE_PORT:9095}
           negotiation-type: plaintext
         donation-service:
-          address: static://${DONATION_SERVICE_HOST:donation-service}:${DONATION_GRPC_SERVICE_PORT:9092}
+          address: static://${DONATION_SERVICE_HOST:donation-service}:${DONATION_GRPC_SERVICE_PORT:9093}
           negotiation-type: plaintext
 
   # ============================================================================
