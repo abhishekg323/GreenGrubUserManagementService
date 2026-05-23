@@ -25,6 +25,8 @@ public class UserResponse {
     private String address;
     private Boolean isActive;
     private UserRole role;
+    private String imageId;
+    private String imageUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

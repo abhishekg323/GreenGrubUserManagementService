@@ -62,6 +62,14 @@ public class User {
     @Column(name = "role", nullable = false, length = 20)
     private UserRole role;
 
+    /**
+     * Pointer to the user's profile image, stored in image-service. Null when no
+     * profile image has been uploaded. The bytes/URL live in image-service; we
+     * only persist the id here.
+     */
+    @Column(name = "image_id", length = 36)
+    private String imageId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

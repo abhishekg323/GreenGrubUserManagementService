@@ -1,12 +1,9 @@
 package com.greengrub.usermanagement.config;
 
-import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
-import io.swagger.v3.oas.models.security.SecurityRequirement;
-import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,53 +11,32 @@ import org.springframework.context.annotation.Configuration;
 import java.util.List;
 
 /**
- * Swagger/OpenAPI Configuration
- * Provides interactive API documentation and testing interface
+ * Swagger / OpenAPI configuration.
+ *
+ * The API Gateway terminates authentication, so the service no longer advertises
+ * a Bearer security scheme. Swagger here is purely for documenting and exercising
+ * endpoints during development.
  */
 @Configuration
 public class SwaggerConfig {
 
     @Bean
     public OpenAPI customerServiceOpenAPI() {
-        // Define JWT security scheme
-        SecurityScheme securityScheme = new SecurityScheme()
-                .type(SecurityScheme.Type.HTTP)
-                .scheme("bearer")
-                .bearerFormat("JWT")
-                .in(SecurityScheme.In.HEADER)
-                .name("Authorization")
-                .description("Enter JWT token obtained from login/signup. Example: Just paste the token, 'Bearer' prefix is added automatically.");
-
-        SecurityRequirement securityRequirement = new SecurityRequirement()
-                .addList("Bearer Authentication");
-
         return new OpenAPI()
                 .info(new Info()
                         .title("User Management Service API")
                         .description("""
-                                ## GreenGrub Customer Microservice API
+                                ## GreenGrub User Management Service
 
-                                Complete REST API for managing customer/user operations in the GreenGrub application.
+                                REST API for user records (donors, recipients, admins).
+                                Authentication and authorization are handled upstream by
+                                the GCP API Gateway; this service receives identity via
+                                gateway-injected headers (X-User-Id, X-User-Email, X-User-Role).
 
-                                ### Features
-                                - 🔐 JWT-based authentication
-                                - 👥 User management (CRUD)
-                                - 🔑 Password management
-                                - 🔍 Search and filtering
-                                - 📊 Statistics (Admin only)
-                                - 🛡️ Role-based access control
-
-                                ### How to Use
-                                1. **Sign Up** or **Login** to get a JWT token
-                                2. Click the **Authorize** button (🔓) at the top
-                                3. Paste your token in the value field
-                                4. Click **Authorize** to apply the token
-                                5. Try out the protected endpoints!
-
-                                ### User Roles
-                                - **DONOR**: Can donate food
-                                - **RECIPIENT**: Can receive food
-                                - **ADMIN**: Full administrative access
+                                ### Roles
+                                - **DONOR**: donates food
+                                - **RECIPIENT**: receives food
+                                - **ADMIN**: administrative access
                                 """)
                         .version("1.0.0")
                         .contact(new Contact()
@@ -75,10 +51,7 @@ public class SwaggerConfig {
                                 .description("Local Development Server"),
                         new Server()
                                 .url("https://api.greengrub.com")
-                                .description("Production Server (if available)")
-                ))
-                .components(new Components()
-                        .addSecuritySchemes("Bearer Authentication", securityScheme))
-                .addSecurityItem(securityRequirement);
+                                .description("Production (via API Gateway)")
+                ));
     }
 }

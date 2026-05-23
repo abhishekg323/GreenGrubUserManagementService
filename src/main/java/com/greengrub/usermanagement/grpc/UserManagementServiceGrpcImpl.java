@@ -11,8 +11,12 @@ import com.greengrub.proto.users.VerifyCredentialsResponse;
 import com.greengrub.proto.users.ListUsersRequest;
 import com.greengrub.proto.users.ListUsersResponse;
 import com.greengrub.proto.users.UserResponse;
+import com.greengrub.proto.users.Image;
+import com.greengrub.usermanagement.client.ImageServiceClient;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
+import com.greengrub.usermanagement.exception.DonationServiceException;
+import com.greengrub.usermanagement.exception.ImageServiceException;
 import com.greengrub.usermanagement.exception.InvalidPasswordException;
 import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
 import com.greengrub.usermanagement.exception.UserNotFoundException;
@@ -41,6 +45,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
 
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
+    private final ImageServiceClient imageServiceClient;
 
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
@@ -343,7 +348,7 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
      * Map User entity to gRPC UserResponse
      */
     private UserResponse mapToUserResponse(User user) {
-        com.greengrub.proto.users.User protoUser = com.greengrub.proto.users.User.newBuilder()
+        com.greengrub.proto.users.User.Builder protoUser = com.greengrub.proto.users.User.newBuilder()
             .setUserId(user.getId())
             .setName(user.getName())
             .setEmail(user.getEmail())
@@ -352,11 +357,22 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
             .setIsActive(user.getIsActive())
             .setRole(mapToProtoRole(user.getRole()))
             .setCreatedAt(user.getCreatedAt().format(ISO_FORMATTER))
-            .setUpdatedAt(user.getUpdatedAt().format(ISO_FORMATTER))
-            .build();
+            .setUpdatedAt(user.getUpdatedAt().format(ISO_FORMATTER));
+
+        // Best-effort URL inflation. ImageServiceClient.getById absorbs gRPC failures
+        // and returns Optional.empty(), so a sick image-service never breaks the
+        // user read path.
+        if (user.getImageId() != null) {
+            imageServiceClient.getById(user.getImageId()).ifPresent(view ->
+                protoUser.setImage(Image.newBuilder()
+                    .setId(view.imageId())
+                    .setCreatorId(user.getId())
+                    .setUrl(view.imageUrl() != null ? view.imageUrl() : "")
+                    .build()));
+        }
 
         return UserResponse.newBuilder()
-            .setUser(protoUser)
+            .setUser(protoUser.build())
             .build();
     }
 
@@ -381,6 +397,16 @@ public class UserManagementServiceGrpcImpl extends UserManagementServiceImplBase
         if (e instanceof UserStorageException || e instanceof CallNotPermittedException) {
             return Status.UNAVAILABLE
                     .withDescription("Service temporarily unavailable, please retry: " + e.getMessage())
+                    .asRuntimeException();
+        }
+        if (e instanceof ImageServiceException) {
+            return Status.UNAVAILABLE
+                    .withDescription("Image service temporarily unavailable, please retry: " + e.getMessage())
+                    .asRuntimeException();
+        }
+        if (e instanceof DonationServiceException) {
+            return Status.UNAVAILABLE
+                    .withDescription("Donation service temporarily unavailable, please retry: " + e.getMessage())
                     .asRuntimeException();
         }
         return Status.INTERNAL.withDescription(fallbackMessage + ": " + e.getMessage()).asRuntimeException();

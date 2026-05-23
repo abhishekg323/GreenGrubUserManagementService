@@ -1,5 +1,11 @@
 package com.greengrub.usermanagement.service;
 
+import com.greengrub.proto.donation.DonationListResponse;
+import com.greengrub.proto.donation.DonationResponse;
+import com.greengrub.proto.donation.Quantity;
+import com.greengrub.usermanagement.client.DonationServiceClient;
+import com.greengrub.usermanagement.client.ImageServiceClient;
+import com.greengrub.usermanagement.dto.DonationListView;
 import com.greengrub.usermanagement.dto.UserCreateRequest;
 import com.greengrub.usermanagement.dto.UserResponse;
 import com.greengrub.usermanagement.dto.UserUpdateRequest;
@@ -18,7 +24,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -34,6 +42,8 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final ImageServiceClient imageServiceClient;
+    private final DonationServiceClient donationServiceClient;
 
     @Override
     @Transactional
@@ -58,13 +68,13 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponse getUserById(String userId) {
         log.info("Fetching user by id: {}", userId);
-        return userMapper.toResponse(findUserByIdOrThrow(userId));
+        return inflateImageUrl(userMapper.toResponse(findUserByIdOrThrow(userId)));
     }
 
     @Override
     public UserResponse getUserByEmail(String email) {
         log.info("Fetching user by email: {}", email);
-        return userMapper.toResponse(findUserByEmailOrThrow(email));
+        return inflateImageUrl(userMapper.toResponse(findUserByEmailOrThrow(email)));
     }
 
     @Override
@@ -308,6 +318,111 @@ public class UserServiceImpl implements UserService {
     public List<User> getUserEntitiesByRole(UserRole role) {
         log.debug("Fetching user entities by role: {}", role);
         return findUsersByRole(role);
+    }
+
+    // ============= Profile image =============
+
+    @Override
+    @Transactional
+    public UserResponse uploadProfileImage(String userId, MultipartFile file) {
+        log.info("Uploading profile image for userId: {} ({} bytes)", userId, file.getSize());
+
+        User user = findUserByIdOrThrow(userId);
+
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            // Reading the multipart payload failed before we ever called image-service.
+            throw new IllegalArgumentException("Could not read uploaded file: " + e.getMessage());
+        }
+
+        // image-service call lives behind imageServiceBreaker — failure here throws
+        // ImageServiceException (→ 503) and the user row is NOT modified, so we never
+        // leave a half-set imageId pointing at nothing.
+        String newImageId = imageServiceClient.uploadProfileImage(
+                userId,
+                bytes,
+                file.getOriginalFilename() != null ? file.getOriginalFilename() : "profile",
+                file.getContentType() != null ? file.getContentType() : "application/octet-stream");
+
+        user.setImageId(newImageId);
+        User saved = saveUser(user);
+
+        log.info("Profile image uploaded for userId: {} → imageId: {}", userId, newImageId);
+        return inflateImageUrl(userMapper.toResponse(saved));
+    }
+
+    @Override
+    @Transactional
+    public UserResponse deleteProfileImage(String userId) {
+        log.info("Clearing profile image pointer for userId: {}", userId);
+
+        User user = findUserByIdOrThrow(userId);
+        user.setImageId(null);
+        User saved = saveUser(user);
+
+        return userMapper.toResponse(saved);
+    }
+
+    @Override
+    public DonationListView getDonationsByUserId(String userId, int page, int pageSize) {
+        log.info("Fetching donations for userId={} page={} pageSize={}", userId, page, pageSize);
+
+        // Confirm the user actually exists before we hit donation-service. Avoids
+        // a successful "empty list" response for a userId that was never valid.
+        findUserByIdOrThrow(userId);
+
+        DonationListResponse response = donationServiceClient.getDonationsByUserId(userId, page, pageSize);
+        return mapDonationListResponse(response);
+    }
+
+    private DonationListView mapDonationListResponse(DonationListResponse response) {
+        List<DonationListView.DonationView> donations = response.getDonationsList().stream()
+                .map(this::mapDonation)
+                .collect(Collectors.toList());
+
+        return DonationListView.builder()
+                .donations(donations)
+                .totalCount(response.getTotalCount())
+                .page(response.getPage())
+                .pageSize(response.getPageSize())
+                .build();
+    }
+
+    private DonationListView.DonationView mapDonation(DonationResponse d) {
+        return DonationListView.DonationView.builder()
+                .id(d.getId())
+                .donationName(d.getDonationName())
+                .pickUpAddress(d.getPickUpAddress())
+                .pickUpTime(d.getPickUpTime())
+                .estimatedQuantity(mapQuantity(d.getEstimatedQuantity()))
+                .foodItemsId(List.copyOf(d.getFoodItemsIdList()))
+                .status(d.getStatus().name())
+                .creationDate(d.getCreationDate())
+                .updateDate(d.getUpdateDate())
+                .build();
+    }
+
+    private DonationListView.QuantityView mapQuantity(Quantity q) {
+        return DonationListView.QuantityView.builder()
+                .amount(q.getAmount())
+                .unit(q.getUnit().name())
+                .build();
+    }
+
+    /**
+     * Best-effort URL inflation for single-user reads. List endpoints intentionally
+     * skip this to avoid an N×RPC fan-out — the frontend can resolve URLs lazily.
+     * If image-service is down, the user response still goes out with imageUrl=null.
+     */
+    private UserResponse inflateImageUrl(UserResponse response) {
+        if (response == null || response.getImageId() == null) {
+            return response;
+        }
+        imageServiceClient.getById(response.getImageId())
+                .ifPresent(view -> response.setImageUrl(view.imageUrl()));
+        return response;
     }
 
     // ============= Resilience-wrapped repository helpers =============

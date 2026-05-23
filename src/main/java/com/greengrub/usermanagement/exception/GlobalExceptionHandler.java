@@ -188,6 +188,53 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handle image-service failures. The image breaker is separate from the
+     * user breaker, so a 503 here means image-service is sick — Postgres may
+     * still be fine.
+     */
+    @ExceptionHandler(ImageServiceException.class)
+    public ResponseEntity<ErrorResponse> handleImageServiceException(
+            ImageServiceException ex,
+            HttpServletRequest request) {
+
+        log.error("image-service call failed: {}", ex.getMessage(), ex);
+
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Image Service Unavailable")
+                .message("Image service temporarily unavailable, please try again.")
+                .details(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+    }
+
+    /**
+     * Handle donation-service failures. Has its own breaker so a sick
+     * donation-service does not trip the user or image breakers.
+     */
+    @ExceptionHandler(DonationServiceException.class)
+    public ResponseEntity<ErrorResponse> handleDonationServiceException(
+            DonationServiceException ex,
+            HttpServletRequest request) {
+
+        log.error("donation-service call failed: {}", ex.getMessage(), ex);
+
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Donation Service Unavailable")
+                .message("Donation service temporarily unavailable, please try again.")
+                .details(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+    }
+
+    /**
      * Handle calls rejected by an OPEN circuit breaker.
      */
     @ExceptionHandler(CallNotPermittedException.class)
