@@ -1,6 +1,7 @@
 # ============================================================================
 # Kubernetes Profile - Google Cloud SQL (Postgres)
 # ============================================================================
+
 spring:
   # Cloud SQL Postgres connection (private IP via Cloud SQL Auth, no public IP needed)
   cloud:
