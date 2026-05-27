@@ -3,12 +3,17 @@
 
     <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="customer-service"/>
 
-    <!-- ── Console appender (human-readable for all profiles) ─────────────── -->
+    <!-- ── Console appender (always active — needed before profile resolves) ── -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
+
+    <!-- Default root — overridden per profile below -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
 
     <!-- ── Logstash TCP appender (local profile only) ─────────────────────── -->
     <springProfile name="local">
@@ -17,7 +22,6 @@
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <customFields>{"service":"${appName}","env":"local"}</customFields>
             </encoder>
-            <!-- Reconnect silently if Logstash is not yet up -->
             <reconnectionDelay>10 seconds</reconnectionDelay>
             <keepAliveDuration>5 minutes</keepAliveDuration>
         </appender>
