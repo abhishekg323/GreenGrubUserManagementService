@@ -1,6 +1,7 @@
 # ============================================================================
 # Kubernetes Profile - Google Cloud SQL (Postgres)
 # ============================================================================
+
 spring:
   # Cloud SQL Postgres connection (private IP via Cloud SQL Auth, no public IP needed)
   cloud:
@@ -55,11 +56,6 @@ spring:
             non_contextual_creation: true
           time_zone: UTC
 
-# Disable sample data initialization in production
-app:
-  data:
-    init:
-      enabled: false
   # CORS origins set in the cluster (ConfigMap/Secret). Comma-separated list,
   # e.g. https://app.greengrub.com,https://admin.greengrub.com.
   # Empty default = no Access-Control-Allow-Origin header is emitted; the
@@ -71,7 +67,10 @@ app:
 logging:
   level:
     root: INFO
-    com.greengrub.usermanagement: INFO
+    com.greengrub: DEBUG          # or INFO in production
+    org.springframework: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
 # ============================================================================
 # Resilience4j - production thresholds
@@ -125,3 +124,7 @@ resilience4j:
         register-health-indicator: true
 server:
   port: 8082
+
+eureka:
+  client:
+    enabled: false

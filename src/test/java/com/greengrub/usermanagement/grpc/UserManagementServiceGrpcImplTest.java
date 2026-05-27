@@ -13,6 +13,8 @@ import com.greengrub.proto.users.UserResponse;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.service.UserService;
+import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
+import com.greengrub.usermanagement.exception.UserNotFoundException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -135,7 +137,7 @@ class UserManagementServiceGrpcImplTest {
                 .build();
 
         when(userService.getUserEntityById(anyString()))
-                .thenThrow(new RuntimeException("User not found"));
+                .thenThrow(new UserNotFoundException("non-existent-id"));
 
         // Act
         grpcService.getUser(request, userResponseObserver);
@@ -147,7 +149,7 @@ class UserManagementServiceGrpcImplTest {
 
         StatusRuntimeException exception = exceptionCaptor.getValue();
         assertThat(exception.getStatus().getCode()).isEqualTo(Status.Code.NOT_FOUND);
-        assertThat(exception.getMessage()).contains("User not found");
+        assertThat(exception.getMessage()).contains("non-existent-id");
     }
 
     // ==================== GetUserByEmail Tests ====================
@@ -182,7 +184,7 @@ class UserManagementServiceGrpcImplTest {
                 .build();
 
         when(userService.getUserEntityByEmail(anyString()))
-                .thenThrow(new RuntimeException("User not found"));
+                .thenThrow(new UserNotFoundException("nonexistent@example.com"));
 
         // Act
         grpcService.getUserByEmail(request, userResponseObserver);
@@ -264,7 +266,7 @@ class UserManagementServiceGrpcImplTest {
 
         when(passwordEncoder.encode(anyString())).thenReturn("hashedPassword");
         when(userService.createUser(argThat((User user) -> user != null)))
-                .thenThrow(new RuntimeException("User with email existing@example.com already exists"));
+                .thenThrow(new UserAlreadyExistsException("User with email existing@example.com already exists"));
 
         // Act
         grpcService.createUser(request, userResponseObserver);
@@ -272,7 +274,7 @@ class UserManagementServiceGrpcImplTest {
         // Assert
         verify(userResponseObserver).onError(exceptionCaptor.capture());
         StatusRuntimeException exception = exceptionCaptor.getValue();
-        assertThat(exception.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
+        assertThat(exception.getStatus().getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
         assertThat(exception.getMessage()).contains("already exists");
     }
 
@@ -313,7 +315,7 @@ class UserManagementServiceGrpcImplTest {
                 .build();
 
         when(userService.getUserEntityById(anyString()))
-                .thenThrow(new RuntimeException("User not found"));
+                .thenThrow(new UserNotFoundException("non-existent"));
 
         // Act
         grpcService.updateUser(request, userResponseObserver);
@@ -321,7 +323,7 @@ class UserManagementServiceGrpcImplTest {
         // Assert
         verify(userResponseObserver).onError(exceptionCaptor.capture());
         StatusRuntimeException exception = exceptionCaptor.getValue();
-        assertThat(exception.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT);
+        assertThat(exception.getStatus().getCode()).isEqualTo(Status.Code.NOT_FOUND);
     }
 
     // ==================== DeleteUser Tests ====================

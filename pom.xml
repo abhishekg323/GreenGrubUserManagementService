@@ -20,24 +20,13 @@
 
     <properties>
         <java.version>21</java.version>
-
-        <!-- Spring Cloud -->
         <spring-cloud.version>2025.0.0</spring-cloud.version>
-
-        <!-- Spring Cloud GCP -->
         <spring-cloud-gcp.version>6.2.1</spring-cloud-gcp.version>
-
-        <!-- Protobuf -->
         <protobuf.version>3.25.5</protobuf.version>
-
-        <!-- JWT -->
         <jwt.version>0.12.6</jwt.version>
-
-        <!-- Resilience4j -->
         <resilience4j.version>2.2.0</resilience4j.version>
-
-        <!-- Spring gRPC -->
         <spring-grpc.version>0.10.0</spring-grpc.version>
+        <grpc.version>1.70.0</grpc.version>
     </properties>
 
     <repositories>
@@ -65,6 +54,15 @@
                 <groupId>com.google.cloud</groupId>
                 <artifactId>spring-cloud-gcp-dependencies</artifactId>
                 <version>${spring-cloud-gcp.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Force all io.grpc artifacts to the same version as proto-contracts -->
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -201,6 +199,18 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- Micrometer Prometheus -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- Eureka Client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -282,7 +292,53 @@
                 </executions>
             </plugin>
 
+            <!-- JaCoCo -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                            <excludes>
+                                <exclude>com/greengrub/usermanagement/UserManagementApplication.class</exclude>
+                                <exclude>com/greengrub/usermanagement/config/**</exclude>
+                                <exclude>com/greengrub/usermanagement/entity/User.class</exclude>
+                                <exclude>com/greengrub/usermanagement/aspect/LoggingAspect.class</exclude>
+                                <exclude>com/greengrub/usermanagement/filter/RequestResponseLoggingFilter.class</exclude>
+                                <exclude>com/greengrub/proto/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
+        <finalName>customer-service</finalName>
     </build>
 
 </project>
