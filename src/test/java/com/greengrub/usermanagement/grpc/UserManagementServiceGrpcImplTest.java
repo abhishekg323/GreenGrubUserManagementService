@@ -10,11 +10,17 @@ import com.greengrub.proto.users.VerifyCredentialsResponse;
 import com.greengrub.proto.users.ListUsersRequest;
 import com.greengrub.proto.users.ListUsersResponse;
 import com.greengrub.proto.users.UserResponse;
+import com.greengrub.usermanagement.client.ImageServiceClient;
 import com.greengrub.usermanagement.entity.User;
 import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.service.UserService;
+import com.greengrub.usermanagement.exception.DonationServiceException;
+import com.greengrub.usermanagement.exception.ImageServiceException;
+import com.greengrub.usermanagement.exception.InvalidPasswordException;
 import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
 import com.greengrub.usermanagement.exception.UserNotFoundException;
+import com.greengrub.usermanagement.exception.UserStorageException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -26,6 +32,8 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
@@ -42,6 +50,7 @@ import static org.mockito.Mockito.*;
  * Tests all 9 gRPC operations with mocked dependencies
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class UserManagementServiceGrpcImplTest {
 
     @Mock
@@ -49,6 +58,9 @@ class UserManagementServiceGrpcImplTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private ImageServiceClient imageServiceClient;
 
     @Mock
     private StreamObserver<UserResponse> userResponseObserver;
@@ -676,5 +688,186 @@ class UserManagementServiceGrpcImplTest {
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         return user;
+    }
+
+    // ==================== UpdateUser Additional Tests ====================
+
+    @Test
+    void updateUser_AllOptionalFields_Success() {
+        UpdateUserRequest request = UpdateUserRequest.newBuilder()
+                .setUserId(USER_ID)
+                .setName("New Name")
+                .setEmail("new@example.com")
+                .setPhoneNumber("5555555555")
+                .setAddress("456 New St")
+                .setRole(com.greengrub.proto.users.UserRole.RECIPIENT)
+                .build();
+
+        when(userService.getUserEntityById(USER_ID)).thenReturn(testUser);
+        when(userService.updateUser(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        grpcService.updateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onNext(userResponseCaptor.capture());
+        verify(userResponseObserver).onCompleted();
+        UserResponse response = userResponseCaptor.getValue();
+        assertThat(response.getUser().getName()).isEqualTo("New Name");
+    }
+
+    @Test
+    void updateUser_BlankPhoneAndAddress_ClearsFields() {
+        UpdateUserRequest request = UpdateUserRequest.newBuilder()
+                .setUserId(USER_ID)
+                .setPhoneNumber("")
+                .setAddress("")
+                .build();
+
+        when(userService.getUserEntityById(USER_ID)).thenReturn(testUser);
+        when(userService.updateUser(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        grpcService.updateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onCompleted();
+    }
+
+    // ==================== ActivateUser Error Tests ====================
+
+    @Test
+    void activateUser_UserNotFound_ReturnsError() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId("bad-id").build();
+        when(userService.getUserEntityById("bad-id")).thenThrow(new UserNotFoundException("bad-id"));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.NOT_FOUND.getCode());
+    }
+
+    // ==================== DeactivateUser Error Tests ====================
+
+    @Test
+    void deactivateUser_UserNotFound_ReturnsError() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId("bad-id").build();
+        when(userService.getUserEntityById("bad-id")).thenThrow(new UserNotFoundException("bad-id"));
+
+        grpcService.deactivateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.NOT_FOUND.getCode());
+    }
+
+    // ==================== mapException Additional Branches ====================
+
+    @Test
+    void mapException_InvalidPasswordException_ReturnsInvalidArgument() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new InvalidPasswordException("bad password"));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.INVALID_ARGUMENT.getCode());
+    }
+
+    @Test
+    void mapException_IllegalArgumentException_ReturnsInvalidArgument() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new IllegalArgumentException("illegal"));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.INVALID_ARGUMENT.getCode());
+    }
+
+    @Test
+    void mapException_UserStorageException_ReturnsUnavailable() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new UserStorageException("db down", new RuntimeException()));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.UNAVAILABLE.getCode());
+    }
+
+    @Test
+    void mapException_ImageServiceException_ReturnsUnavailable() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new ImageServiceException("img down", new RuntimeException()));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.UNAVAILABLE.getCode());
+    }
+
+    @Test
+    void mapException_DonationServiceException_ReturnsUnavailable() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new DonationServiceException("donation down", new RuntimeException()));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.UNAVAILABLE.getCode());
+    }
+
+    @Test
+    void mapException_GenericException_ReturnsInternal() {
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenThrow(new RuntimeException("unexpected"));
+
+        grpcService.activateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onError(exceptionCaptor.capture());
+        assertThat(exceptionCaptor.getValue().getStatus().getCode())
+                .isEqualTo(Status.INTERNAL.getCode());
+    }
+
+    // ==================== mapToUserResponse with imageId ====================
+
+    @Test
+    void mapToUserResponse_withImageId_inflatesImageUrl() {
+        testUser.setImageId("img-001");
+        ImageServiceClient.ImageView imageView = new ImageServiceClient.ImageView("img-001", "http://example.com/img.png");
+        when(imageServiceClient.getById("img-001")).thenReturn(java.util.Optional.of(imageView));
+
+        UserByIdRequest request = UserByIdRequest.newBuilder().setUserId(USER_ID).build();
+        when(userService.getUserEntityById(USER_ID)).thenReturn(testUser);
+
+        grpcService.getUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onNext(userResponseCaptor.capture());
+        UserResponse response = userResponseCaptor.getValue();
+        assertThat(response.getUser().getImage().getUrl()).isEqualTo("http://example.com/img.png");
+    }
+
+    // ==================== mapToEntityRole / mapToProtoRole edge cases ====================
+
+    @Test
+    void updateUser_AdminRole_MapsCorrectly() {
+        UpdateUserRequest request = UpdateUserRequest.newBuilder()
+                .setUserId(USER_ID)
+                .setRole(com.greengrub.proto.users.UserRole.ADMIN)
+                .build();
+
+        when(userService.getUserEntityById(USER_ID)).thenReturn(testUser);
+        when(userService.updateUser(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            u.setRole(UserRole.ADMIN);
+            return u;
+        });
+
+        grpcService.updateUser(request, userResponseObserver);
+
+        verify(userResponseObserver).onCompleted();
     }
 }

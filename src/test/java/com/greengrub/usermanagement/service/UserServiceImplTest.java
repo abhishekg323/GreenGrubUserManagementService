@@ -1,7 +1,12 @@
 package com.greengrub.usermanagement.service;
 
 import com.greengrub.proto.donation.DonationListResponse;
+import com.greengrub.proto.donation.DonationResponse;
+import com.greengrub.proto.donation.DonationStatus;
+import com.greengrub.proto.donation.Quantity;
+import com.greengrub.proto.donation.Unit;
 import com.greengrub.usermanagement.client.DonationServiceClient;
+import com.greengrub.usermanagement.exception.UserStorageException;
 import com.greengrub.usermanagement.client.ImageServiceClient;
 import com.greengrub.usermanagement.dto.*;
 import com.greengrub.usermanagement.entity.User;
@@ -550,5 +555,173 @@ class UserServiceImplTest {
         List<User> result = userService.getUserEntitiesByRole(UserRole.DONOR);
 
         assertThat(result).hasSize(1);
+    }
+
+    // ── mapDonation / mapQuantity ─────────────────────────────────────────────
+
+    @Test
+    void getDonationsByUserId_withDonations_mapsDonationAndQuantityFields() {
+        when(userRepository.findById("test-id-123")).thenReturn(Optional.of(testUser));
+
+        Quantity qty = Quantity.newBuilder().setAmount(2.5).setUnit(Unit.KG).build();
+        DonationResponse donation = DonationResponse.newBuilder()
+                .setId("don-1")
+                .setDonationName("Rice Bags")
+                .setPickUpAddress("123 Main St")
+                .setPickUpTime("10:00 AM")
+                .setEstimatedQuantity(qty)
+                .addFoodItemsId("food-1")
+                .setStatus(DonationStatus.ACTIVE)
+                .setCreationDate("2024-01-01")
+                .setUpdateDate("2024-01-02")
+                .build();
+        DonationListResponse resp = DonationListResponse.newBuilder()
+                .addDonations(donation)
+                .setTotalCount(1).setPage(0).setPageSize(10)
+                .build();
+        when(donationServiceClient.getDonationsByUserId("test-id-123", 0, 10)).thenReturn(resp);
+
+        DonationListView result = userService.getDonationsByUserId("test-id-123", 0, 10);
+
+        assertThat(result.getTotalCount()).isEqualTo(1);
+        assertThat(result.getDonations()).hasSize(1);
+        DonationListView.DonationView view = result.getDonations().get(0);
+        assertThat(view.getId()).isEqualTo("don-1");
+        assertThat(view.getDonationName()).isEqualTo("Rice Bags");
+        assertThat(view.getStatus()).isEqualTo("ACTIVE");
+        assertThat(view.getEstimatedQuantity().getAmount()).isEqualTo(2.5);
+        assertThat(view.getEstimatedQuantity().getUnit()).isEqualTo("KG");
+        assertThat(view.getFoodItemsId()).containsExactly("food-1");
+    }
+
+    // ── resilience exception paths ────────────────────────────────────────────
+
+    @Test
+    void saveUser_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.save(any(User.class))).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.saveUser(testUser))
+                .isInstanceOf(UserStorageException.class)
+                .hasMessageContaining("Failed to save user");
+    }
+
+    @Test
+    void findUserByIdOrThrow_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findById("bad-id")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findUserByIdOrThrow("bad-id"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findUserByEmailOrThrow_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByEmail("x@x.com")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findUserByEmailOrThrow("x@x.com"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void existsByEmailInternal_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.existsByEmail("x@x.com")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.existsByEmailInternal("x@x.com"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void existsByIdInternal_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.existsById("bad-id")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.existsByIdInternal("bad-id"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void deleteUserById_repositoryThrows_wrapsInUserStorageException() {
+        doThrow(new RuntimeException("db down")).when(userRepository).deleteById("bad-id");
+
+        assertThatThrownBy(() -> userService.deleteUserById("bad-id"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findAllUsers_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findAll()).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findAllUsers())
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findActiveUsers_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByIsActiveTrue()).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findActiveUsers())
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findUsersByRole_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByRole(UserRole.DONOR)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findUsersByRole(UserRole.DONOR))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void searchByName_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByNameContainingIgnoreCase("john")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.searchByName("john"))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findActiveDonors_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findAllActiveDonors(UserRole.DONOR)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findActiveDonors())
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findActiveRecipients_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findAllActiveRecipients(UserRole.RECIPIENT)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findActiveRecipients())
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void countByRoleInternal_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.countByRole(UserRole.DONOR)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.countByRoleInternal(UserRole.DONOR))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void countActiveInternal_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.countActiveUsers()).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.countActiveInternal())
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findByRoleAndActive_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByRoleAndIsActive(UserRole.DONOR, true)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findByRoleAndActive(UserRole.DONOR, true))
+                .isInstanceOf(UserStorageException.class);
+    }
+
+    @Test
+    void findByActive_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByIsActive(true)).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> userService.findByActive(true))
+                .isInstanceOf(UserStorageException.class);
     }
 }

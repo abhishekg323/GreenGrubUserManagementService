@@ -6,6 +6,7 @@ import com.greengrub.usermanagement.entity.UserRole;
 import com.greengrub.usermanagement.exception.InvalidPasswordException;
 import com.greengrub.usermanagement.exception.UserAlreadyExistsException;
 import com.greengrub.usermanagement.exception.UserNotFoundException;
+import com.greengrub.usermanagement.exception.UserStorageException;
 import com.greengrub.usermanagement.mapper.UserMapper;
 import com.greengrub.usermanagement.repository.UserRepository;
 import com.greengrub.usermanagement.security.JwtUtil;
@@ -168,5 +169,34 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.validateToken("token"))
                 .isInstanceOf(InvalidPasswordException.class);
+    }
+
+    // ── resilience exception paths ────────────────────────────────────────────
+
+    @Test
+    void existsByEmail_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.existsByEmail("john@example.com")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> authService.existsByEmail("john@example.com"))
+                .isInstanceOf(UserStorageException.class)
+                .hasMessageContaining("Failed to check email existence");
+    }
+
+    @Test
+    void saveUser_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.save(any(User.class))).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> authService.saveUser(sampleUser))
+                .isInstanceOf(UserStorageException.class)
+                .hasMessageContaining("Failed to save user");
+    }
+
+    @Test
+    void findUserByEmail_repositoryThrows_wrapsInUserStorageException() {
+        when(userRepository.findByEmail("john@example.com")).thenThrow(new RuntimeException("db down"));
+
+        assertThatThrownBy(() -> authService.findUserByEmail("john@example.com"))
+                .isInstanceOf(UserStorageException.class)
+                .hasMessageContaining("Failed to fetch user by email");
     }
 }
