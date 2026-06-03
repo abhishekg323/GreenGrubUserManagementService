@@ -119,7 +119,7 @@ pipeline {
                 withKubeConfig([credentialsId: "${K8S_CREDENTIALS_ID}", serverUrl: "${K8S_API_SERVER}"]) {
                     sh "sed -i 's|IMAGE_NAME|${DOCKER_HUB_USER}/${SERVICE_NAME}:${BUILD_NUMBER}|g' k8s.yaml"
                     sh "kubectl apply -f k8s.yaml -n services"
-                    sh "kubectl rollout status deployment/customer-service -n services --timeout=630s"
+                    sh "kubectl rollout status deployment/customer-service -n services --timeout=780s"
                 }
             }
         }
