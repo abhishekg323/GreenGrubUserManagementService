@@ -1,0 +1,161 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Customer Service  –  Deployment + HPA + Service
+# Namespace : services
+# Resource Plan : CPU req 200m / limit 450m | Mem req 350Mi / limit 650Mi
+# HPA : minReplicas 1, maxReplicas 5, CPU 65%, Memory 75%
+# NOTE: Running on self-managed kubeadm cluster (not GKE).
+#       Cloud SQL is reached via its public IP (SPRING_DATASOURCE_URL).
+#       Cloud SQL Auth Proxy sidecar is not used.
+#       HPA requires metrics-server to be installed on the cluster.
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-service
+  namespace: services
+  labels:
+    app: customer-service
+    component: backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: customer-service
+  template:
+    metadata:
+      labels:
+        app: customer-service
+        component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8082"
+        prometheus.io/path:   "/actuator/prometheus"
+    spec:
+      serviceAccountName: services-sa
+      containers:
+        - name: customer-service
+          image: IMAGE_NAME
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+              name: http
+            - containerPort: 9092
+              name: grpc
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "k8s"
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: customer-service-secret
+                  key: SPRING_DATASOURCE_URL
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: customer-service-secret
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: customer-service-secret
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: customer-service-secret
+                  key: JWT_SECRET
+            - name: JWT_EXPIRATION
+              valueFrom:
+                secretKeyRef:
+                  name: customer-service-secret
+                  key: JWT_EXPIRATION
+            - name: IMAGE_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: services-config
+                  key: IMAGE_SERVICE_HOST
+            - name: DONATION_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: services-config
+                  key: DONATION_SERVICE_HOST
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cors-config
+                  key: CORS_ALLOWED_ORIGINS
+          resources:
+            requests:
+              cpu:    "80m"
+              memory: "350Mi"
+            limits:
+              cpu:    "450m"
+              memory: "650Mi"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 0
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: customer-service-hpa
+  namespace: services
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: customer-service
+  minReplicas: 1
+  maxReplicas: 1
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-service
+  namespace: services
+  labels:
+    app: customer-service
+spec:
+  selector:
+    app: customer-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8082
+    - name: grpc
+      port: 9092
+      targetPort: 9092
+  type: ClusterIP
